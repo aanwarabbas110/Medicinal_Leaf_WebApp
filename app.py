@@ -1,8 +1,8 @@
-
 import streamlit as st
 import tensorflow as tf
 import numpy as np
 from PIL import Image
+import os
 
 
 # ==========================================
@@ -17,22 +17,7 @@ st.set_page_config(
 
 
 # ==========================================
-# MODEL
-# ==========================================
-
-MODEL_PATH = "/content/Medicinal_Leaf_Final_74_40.keras"
-
-
-@st.cache_resource
-def load_model():
-    return tf.keras.models.load_model(MODEL_PATH)
-
-
-model = load_model()
-
-
-# ==========================================
-# CLASS NAMES
+# PLANT CLASSES
 # ==========================================
 
 class_names = [
@@ -56,17 +41,97 @@ class_names = [
 
 
 # ==========================================
+# MODEL
+# ==========================================
+
+
+MODEL_PATH = "Medicinal_Leaf_Deployment.keras"
+
+
+@st.cache_resource
+def load_model():
+
+    data_augmentation = tf.keras.Sequential([
+        tf.keras.layers.RandomFlip("horizontal"),
+        tf.keras.layers.RandomRotation(0.08),
+        tf.keras.layers.RandomZoom(0.10),
+        tf.keras.layers.RandomTranslation(0.05, 0.05),
+        tf.keras.layers.RandomContrast(0.10),
+    ])
+
+    base_model = tf.keras.applications.MobileNetV2(
+        input_shape=(224, 224, 3),
+        include_top=False,
+        weights="imagenet"
+    )
+
+    base_model.trainable = False
+
+    inputs = tf.keras.layers.Input(shape=(224, 224, 3))
+
+    x = data_augmentation(inputs)
+
+    x = tf.keras.applications.mobilenet_v2.preprocess_input(x)
+
+    x = base_model(x, training=False)
+
+    x = tf.keras.layers.GlobalAveragePooling2D()(x)
+
+    x = tf.keras.layers.BatchNormalization()(x)
+
+    x = tf.keras.layers.Dropout(0.35)(x)
+
+    x = tf.keras.layers.Dense(
+        256,
+        activation="relu",
+        kernel_regularizer=tf.keras.regularizers.l2(0.0001)
+    )(x)
+
+    x = tf.keras.layers.BatchNormalization()(x)
+
+    x = tf.keras.layers.Dropout(0.30)(x)
+
+    outputs = tf.keras.layers.Dense(
+        80,
+        activation="softmax"
+    )(x)
+
+    model = tf.keras.Model(inputs, outputs)
+
+    model.load_weights("Medicinal_Leaf_74_40.weights.h5")
+
+    return model
+
+
+# ==========================================
 # HEADER
 # ==========================================
 
 st.title("🌿 Medicinal Leaf Identifier")
 
 st.write(
-    "Upload a medicinal leaf image and let the AI "
-    "identify the most likely plant."
+    "Upload a medicinal plant leaf image and the AI model "
+    "will predict the most likely plant."
 )
 
-st.info("AI Model Test Accuracy: 74.40%")
+st.info("Model accuracy on test dataset: 74.40%")
+
+
+# ==========================================
+# CHECK MODEL
+# ==========================================
+
+if not os.path.exists(MODEL_PATH):
+
+    st.error(
+        "Model file not found. Please place "
+        "Medicinal_Leaf_Final_74_40.keras in the same folder as app.py."
+    )
+
+    st.stop()
+
+
+model = load_model()
 
 
 # ==========================================
@@ -74,7 +139,7 @@ st.info("AI Model Test Accuracy: 74.40%")
 # ==========================================
 
 uploaded_file = st.file_uploader(
-    "📷 Upload Leaf Image",
+    "📷 Upload a leaf image",
     type=["jpg", "jpeg", "png", "webp"]
 )
 
@@ -122,10 +187,14 @@ if uploaded_file is not None:
             confidence = predictions[predicted_index] * 100
 
 
-        st.success("🌱 Prediction Complete!")
+        # ==================================
+        # RESULT
+        # ==================================
+
+        st.success("🌿 Prediction Complete!")
 
         st.subheader(
-            f"Plant: {predicted_class}"
+            f"🌱 Plant: {predicted_class}"
         )
 
         st.metric(
@@ -135,34 +204,33 @@ if uploaded_file is not None:
 
 
         # ==================================
-        # TOP 5
+        # TOP 5 PREDICTIONS
         # ==================================
 
-        st.subheader("🔎 Top 5 Predictions")
+        st.subheader("🔎 Top Predictions")
 
         top_indices = np.argsort(predictions)[-5:][::-1]
 
-        for rank, index in enumerate(top_indices, 1):
+        for i, index in enumerate(top_indices):
 
             plant = class_names[index]
 
             score = predictions[index] * 100
 
             st.write(
-                f"**{rank}. {plant}** — {score:.2f}%"
+                f"**{i + 1}. {plant}** — {score:.2f}%"
             )
 
 
 # ==========================================
-# DISCLAIMER
+# FOOTER
 # ==========================================
 
 st.markdown("---")
 
 st.caption(
-    "⚠️ This AI tool is for educational and plant-identification "
-    "purposes only. It is not a substitute for professional "
-    "medical advice."
+    "⚠️ This AI tool is for educational and identification purposes only. "
+    "It is not a substitute for professional medical advice."
 )
 
 st.caption("🌿 Medicinal Leaf Identifier | AI Project")
